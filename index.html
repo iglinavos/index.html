@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>SQE Study Planner — Dr Yannis (© GlinTiss Ltd 2025)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <style>
   :root{
     --bg:#0c0f12; --panel:#151a21; --muted:#8ea0b5; --text:#e9eef5; --accent:#6fe3a7;
@@ -28,11 +29,12 @@
   .btn{
     padding:10px 14px;border-radius:12px;border:1px solid var(--border);background:#11161d;color:var(--text);
     cursor:pointer;transition:.15s transform,.15s background,.15s border-color;user-select:none;
+    display: inline-flex; align-items: center; justify-content: center;
   }
   .btn:hover{transform:translateY(-1px);background:#0e1319}
   .btn.primary{background:var(--accent);border-color:transparent;color:#07120f;font-weight:600}
   .btn.ghost{background:transparent}
-  .btn.warn{background:var(--warn);color:#1f1300;border-color:transparent}
+  .btn.pdf{background:#e74c3c; color:white; border:none; margin-left: 10px;}
   .row-actions{display:flex;gap:8px;align-items:center;justify-content:flex-end}
   .muted{color:var(--muted)}
   .note{font-size:.95rem;color:var(--muted)}
@@ -43,18 +45,26 @@
   thead th{position:sticky;top:0;background:#0f141a;border-bottom:1px solid var(--border);text-align:left;padding:12px;font-weight:600}
   tbody td{border-bottom:1px solid var(--border);padding:12px;vertical-align:top}
   tbody tr{background:#0d1218}
-  tbody tr.dragging{opacity:.5}
   tr.revision{background:var(--rev)}
   .handle{cursor:grab;user-select:none}
   .week-title{font-weight:600}
   details summary{cursor:pointer;color:var(--focus)}
-  .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#0c0f12;border:1px solid var(--border);border-radius:6px;padding:2px 6px}
   .divider{height:1px;background:var(--border);margin:10px 0}
   .flex{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-  .right{margin-left:auto}
   footer{border-top:1px solid var(--border);border-bottom:none}
   a, a:visited{color:var(--focus);text-decoration:none}
-  a:hover{text-decoration:underline}
+  
+  /* Print/PDF Specific Styling */
+  @media print {
+    .row-actions, .handle, .btn, #inputs, #welcome, #exit { display: none !important; }
+    body { background: white; color: black; }
+    .card { border: none; box-shadow: none; }
+    table { color: black; border: 1px solid #ccc; }
+    th, td { border: 1px solid #eee; }
+    .revision { background: #f0f4f8 !important; -webkit-print-color-adjust: exact; }
+    details summary { display:none; }
+    details { display: block !important; }
+  }
 </style>
 </head>
 <body>
@@ -64,15 +74,14 @@
       <h1>SQE Study Planner</h1>
       <p class="muted">Made by Dr Yannis — <strong>© GlinTiss Ltd 2025</strong></p>
     </div>
-    <div class="pill">No sign-in · Works in browser · Print with <span class="kbd">Ctrl/Cmd+P</span></div>
+    <div class="pill">Web-Based Study Tool</div>
   </div>
 </header>
 
 <main>
   <section class="card" id="welcome">
     <h2>Welcome</h2>
-    <p>This planner will: (a) ask when you start, (b) let you choose <em>January 2026</em> or <em>July 2026</em> sitting, (c) allocate weekly topics by effort, (d) add revision weeks when there’s time, and (e) show a week-by-week plan you can reorder.</p>
-    <p class="note">Exam date is treated as the first day of the exam week to anchor the plan’s end.</p>
+    <p>This planner automates your SQE preparation by allocating topics based on exam weighting and providing specific revision anchors for the FLK1/FLK2 transition.</p>
   </section>
 
   <section class="card" id="inputs">
@@ -93,15 +102,15 @@
       <div>
         <label for="sitting">Target sitting</label>
         <select id="sitting">
-          <option value="Jan">January 2026 (exam week starts 12 Jan 2026)</option>
-          <option value="Jul">July 2026 (exam week starts 13 Jul 2026)</option>
+          <option value="Jul26">July 2026 (Exam week: 13-17 July)</option>
+          <option value="Jan27">January 2027 (Exam week: 11-15 Jan)</option>
+          <option value="Jul27">July 2027 (Exam week: 12-16 July)</option>
         </select>
       </div>
     </div>
-    <div class="flex" style="margin-top:10px">
+    <div class="flex" style="margin-top:20px">
       <button class="btn primary" id="generateBtn">Generate plan</button>
       <button class="btn ghost" id="resetBtn">Start over</button>
-      <span class="note">Change the sitting any time; the plan will regenerate.</span>
     </div>
     <div id="err" style="margin-top:10px"></div>
   </section>
@@ -109,38 +118,26 @@
   <section class="card" id="summary" hidden>
     <div class="titlebar">
       <h2>Planner preview</h2>
-      <div class="pill" id="meta"></div>
+      <div class="flex">
+        <div class="pill" id="meta"></div>
+        <button class="btn pdf" id="downloadPdf">Download PDF</button>
+      </div>
     </div>
-    <p class="note">Tip: After you’re happy with the order, <strong>use your browser’s print</strong> (<span class="kbd">Ctrl/Cmd+P</span>) or copy/paste the table into your notes.</p>
     <div class="divider"></div>
-    <div class="flex">
-      <div class="pill">Drag handle = reorder</div>
-      <div class="pill">↕ Adjacent swap</div>
-      <div class="pill">⤿ Split week</div>
-      <div class="right pill" id="revBadge" hidden>Includes 2 revision weeks</div>
-    </div>
-    <div style="overflow:auto;margin-top:10px">
-      <table id="planTable" aria-label="Study planner table">
+    <div id="pdf-content">
+      <table id="planTable">
         <thead>
           <tr>
-            <th style="width:36px">⇅</th>
+            <th class="no-pdf" style="width:36px">⇅</th>
             <th style="width:160px">Week (starts)</th>
             <th>Title</th>
-            <th>Description</th>
-            <th style="width:220px">Actions</th>
+            <th>Details</th>
+            <th class="no-pdf" style="width:220px">Actions</th>
           </tr>
         </thead>
         <tbody id="tbody"></tbody>
       </table>
     </div>
-  </section>
-
-  <section class="card" id="exit" hidden>
-    <h2>Thanks for trying the app!</h2>
-    <p>Want weekly MCQs in your inbox? Subscribe to Dr Yannis’s newsletter: send an email with the word <strong>“subscribe”</strong> to
-      <a href="mailto:newsletter@glintiss.co.uk">newsletter@glintiss.co.uk</a>.
-    </p>
-    <button class="btn" id="startOver2">Start over</button>
   </section>
 </main>
 
@@ -149,307 +146,19 @@
 </footer>
 
 <script>
-/* ------------------ Config & weights ------------------ */
 const EXAMS = {
-  Jan: new Date('2026-01-12T00:00:00'),
-  Jul: new Date('2026-07-13T00:00:00')
+  Jul26: new Date('2026-07-13T00:00:00'),
+  Jan27: new Date('2027-01-11T00:00:00'),
+  Jul27: new Date('2027-07-12T00:00:00')
 };
-// percentages you provided
+
 const FLK1 = [
-  {key:'Business Law & Practice', pct:10.5},
-  {key:'Dispute Resolution', pct:10.5},
-  {key:'Contract Law', pct:5.3},
-  {key:'Tort Law', pct:5.3},
-  {key:'Constitutional & Administrative Law', pct:5.3},
-  {key:'Legal System of England & Wales', pct:5.3},
-  {key:'Legal Services / SRA Regulation', pct:5.3},
-  {key:'Solicitors’ Accounts', pct:5.3},
+  {key:'Business Law & Practice', pct:10.5}, {key:'Dispute Resolution', pct:10.5},
+  {key:'Contract Law', pct:5.3}, {key:'Tort Law', pct:5.3},
+  {key:'Constitutional & Administrative Law', pct:5.3}, {key:'Legal System of England & Wales', pct:5.3},
+  {key:'Legal Services / SRA Regulation', pct:5.3}, {key:'Solicitors’ Accounts', pct:5.3},
   {key:'Ethics & Taxation', pct:10.5},
 ];
 const FLK2 = [
-  {key:'Property Practice', pct:5.3},
-  {key:'Land Law', pct:5.3},
-  {key:'Wills & Administration of Estates', pct:5.3},
-  {key:'Trusts', pct:10.5},
-  {key:'Criminal Law & Practice', pct:10.5},
-];
-function weightsFor(stream){
-  if(stream==='FLK1') return FLK1;
-  if(stream==='FLK2') return FLK2;
-  return [...FLK1, ...FLK2];
-}
-
-/* ------------------ Utilities ------------------ */
-const $ = s=>document.querySelector(s);
-function addDays(d, n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
-function startOfDay(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
-function fmtDate(d){
-  return d.toLocaleDateString(undefined,{day:'2-digit',month:'short',year:'numeric'});
-}
-function weekRange(start){
-  const end = addDays(start,6);
-  return `${fmtDate(start)} – ${fmtDate(end)}`;
-}
-function weeksBetweenInclusiveStartExclusiveEnd(start, end){
-  const ms = startOfDay(end) - startOfDay(start);
-  const days = Math.floor(ms / (1000*60*60*24));
-  return Math.floor(days/7);
-}
-
-/* ------------------ Planning logic ------------------ */
-function allocateWeeks(totalWeeks, stream){
-  const items = weightsFor(stream).map(t=>({topic:t.key, pct:t.pct}));
-  // Convert percentages to shares out of planning weeks
-  const shares = items.map(it=>{
-    const raw = totalWeeks * (it.pct/100);
-    return {topic:it.topic, raw, floor:Math.floor(raw), rem: raw - Math.floor(raw)};
-  });
-  let assigned = shares.reduce((s,a)=>s+a.floor,0);
-  let leftover = totalWeeks - assigned;
-  // Distribute leftover by largest remainder
-  shares.sort((a,b)=>b.rem-a.rem);
-  for(let i=0;i<leftover;i++){ shares[i % shares.length].floor++; }
-  // Return counts
-  shares.sort((a,b)=> a.topic.localeCompare(b.topic)); // stable order later not important
-  return shares.map(s=>({topic:s.topic, weeks:s.floor})).filter(x=>x.weeks>0);
-}
-
-function buildSequence(startDate, examDate, stream){
-  const total = weeksBetweenInclusiveStartExclusiveEnd(startDate, examDate);
-  if(total < 1) return {error:"Not enough time: fewer than 1 full week. Choose a later sitting."};
-  // revision rule
-  const hasRevision = total >= 13;
-  const reservedRevision = hasRevision ? 2 : 0;
-  const planningWeeks = total - reservedRevision;
-  if(planningWeeks < 1) return {error:"Planning window is too short after applying the revision rule."};
-
-  // topic allocation
-  const alloc = allocateWeeks(planningWeeks, stream);
-
-  // Turn counts into contiguous blocks (simple sensible sequence)
-  // Heuristic: interleave heavier blocks, place single-week topics between heavier ones.
-  const singles = alloc.filter(a=>a.weeks===1);
-  const multis = alloc.filter(a=>a.weeks>1).sort((a,b)=>b.weeks-a.weeks);
-
-  const sequence = [];
-  // place multis first as blocks
-  multis.forEach(m=>{
-    for(let w=1; w<=m.weeks; w++){
-      sequence.push({type:'topic', topic:m.topic, part:w, of:m.weeks});
-    }
-  });
-  // insert singles between heavier areas
-  let insertIdx = 1;
-  singles.forEach(s=>{
-    const idx = Math.min(insertIdx, sequence.length);
-    sequence.splice(idx,0,{type:'topic', topic:s.topic, part:1, of:1});
-    insertIdx += 2;
-  });
-
-  // Insert revision at midpoint and end if applicable
-  if(hasRevision){
-    const mid = Math.floor(sequence.length/2);
-    sequence.splice(mid,0,{type:'revision', title:'Revision Week 1 — mocks, timing practice, weak-area drills'});
-    sequence.push({type:'revision', title:'Revision Week 2 — full-course review, logistics, rest'});
-  }
-
-  // Convert to week objects with calendar dates
-  const weeks = [];
-  let cursor = startOfDay(startDate);
-  for(let i=0;i<sequence.length;i++){
-    const s = sequence[i];
-    const week = { index:i, start:new Date(cursor), isRevision:false };
-    if(s.type==='topic'){
-      week.title = s.of>1 ? `${s.topic} — Week ${s.part}` : s.topic;
-      week.description = `Target: ${stream}. Prepare for ${examDate.toLocaleDateString(undefined,{month:'long',year:'numeric'})}. Focus on core subtopics and timed practice.`;
-      week.topic = s.topic;
-    }else{
-      week.title = s.title;
-      week.description = `Target: ${stream}. Prepare for ${examDate.toLocaleDateString(undefined,{month:'long',year:'numeric'})}.`;
-      week.isRevision = true;
-    }
-    weeks.push(week);
-    cursor = addDays(cursor,7);
-  }
-  return {weeks, total, hasRevision, planningWeeks};
-}
-
-/* ------------------ Table rendering & interaction ------------------ */
-let MODEL = {weeks:[], startDate:null, examKey:'Jan', stream:'Both'};
-
-const tbody = $('#tbody');
-function render(){
-  // meta
-  const examDate = EXAMS[MODEL.examKey];
-  $('#meta').textContent = `Start: ${fmtDate(MODEL.startDate)} · Exam week: ${fmtDate(examDate)} · Weeks: ${MODEL.weeks.length}`;
-  $('#revBadge').hidden = !MODEL.weeks.some(w=>w.isRevision);
-
-  // rows
-  tbody.innerHTML = '';
-  MODEL.weeks.forEach((w,i)=>{
-    const tr = document.createElement('tr');
-    if(w.isRevision) tr.classList.add('revision');
-    tr.draggable = true;
-    tr.dataset.index = i;
-
-    tr.innerHTML = `
-      <td class="handle" title="Drag to reorder" aria-label="Drag handle">⠿</td>
-      <td><div class="week-title">${weekRange(w.start)}</div></td>
-      <td><div class="week-title">${escapeHtml(w.title)}</div></td>
-      <td>
-        <details>
-          <summary>Details</summary>
-          <div class="muted"> ${escapeHtml(w.description)} </div>
-          ${w.topic ? `<div class="muted" style="margin-top:6px">Topic: ${escapeHtml(w.topic)}</div>`:''}
-        </details>
-      </td>
-      <td class="row-actions">
-        <button class="btn" data-act="swapUp">↑ Swap</button>
-        <button class="btn" data-act="swapDown">↓ Swap</button>
-        <button class="btn" data-act="split">⤿ Split</button>
-      </td>
-    `;
-    // drag events
-    tr.addEventListener('dragstart', onDragStart);
-    tr.addEventListener('dragover', onDragOver);
-    tr.addEventListener('drop', onDrop);
-    tr.addEventListener('dragend', onDragEnd);
-
-    tbody.appendChild(tr);
-  });
-}
-
-let dragIdx=null;
-function onDragStart(e){
-  const tr = e.currentTarget;
-  dragIdx = parseInt(tr.dataset.index,10);
-  tr.classList.add('dragging');
-  e.dataTransfer.effectAllowed = 'move';
-}
-function onDragOver(e){
-  e.preventDefault();
-  e.dataTransfer.dropEffect = 'move';
-}
-function onDrop(e){
-  e.preventDefault();
-  const targetTr = e.currentTarget;
-  const toIdx = parseInt(targetTr.dataset.index,10);
-  moveRow(dragIdx, toIdx);
-}
-function onDragEnd(e){
-  e.currentTarget.classList.remove('dragging');
-}
-function moveRow(from, to){
-  if(from===to) return;
-  const item = MODEL.weeks.splice(from,1)[0];
-  MODEL.weeks.splice(to,0,item);
-  recomputeDates();
-  render();
-}
-
-tbody.addEventListener('click', (e)=>{
-  const btn = e.target.closest('button');
-  if(!btn) return;
-  const tr = e.target.closest('tr');
-  const idx = parseInt(tr.dataset.index,10);
-  const act = btn.dataset.act;
-
-  if(act==='swapUp' && idx>0){
-    [MODEL.weeks[idx-1], MODEL.weeks[idx]] = [MODEL.weeks[idx], MODEL.weeks[idx-1]];
-    recomputeDates(); render();
-  }
-  if(act==='swapDown' && idx<MODEL.weeks.length-1){
-    [MODEL.weeks[idx+1], MODEL.weeks[idx]] = [MODEL.weeks[idx], MODEL.weeks[idx+1]];
-    recomputeDates(); render();
-  }
-  if(act==='split'){
-    splitWeek(idx);
-  }
-});
-
-function splitWeek(idx){
-  const w = MODEL.weeks[idx];
-  // Don't split revision weeks; silently ignore
-  if(w.isRevision) return;
-  const a = {...w, title: w.title + ' (Part A)'};
-  const b = {...w, title: w.title + ' (Part B)'};
-  MODEL.weeks.splice(idx,1,a,b);
-  recomputeDates();
-  render();
-}
-
-function recomputeDates(){
-  // Recompute week start dates from MODEL.startDate in order
-  let cursor = startOfDay(MODEL.startDate);
-  for(const w of MODEL.weeks){
-    w.start = new Date(cursor);
-    cursor = addDays(cursor,7);
-  }
-}
-
-function setError(msg){
-  const el = $('#err');
-  if(!msg){ el.innerHTML=''; return;}
-  el.innerHTML = `<div class="error" role="alert">${escapeHtml(msg)}</div>`;
-  setTimeout(()=>{ el.innerHTML=''; }, 6000);
-}
-
-function escapeHtml(s){ return (s??'').toString().replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-
-/* ------------------ Wire up controls ------------------ */
-$('#generateBtn').addEventListener('click', ()=>{
-  const startStr = $('#startDate').value;
-  const stream = $('#stream').value;
-  const sitting = $('#sitting').value;
-
-  if(!startStr){ setError('Please provide a study start date.'); return; }
-
-  const startDate = new Date(startStr+'T00:00:00');
-  const examDate = EXAMS[sitting];
-
-  const out = buildSequence(startDate, examDate, stream);
-  if(out.error){ setError(out.error); return; }
-
-  MODEL.startDate = startDate;
-  MODEL.examKey = sitting;
-  MODEL.stream = stream;
-  MODEL.weeks = out.weeks;
-
-  $('#summary').hidden = false;
-  $('#exit').hidden = true;
-  recomputeDates();
-  render();
-});
-
-$('#sitting').addEventListener('change', ()=>{
-  // Regenerate immediately when exam month changes
-  if(!MODEL.startDate) return; // not generated yet
-  $('#generateBtn').click();
-});
-
-$('#resetBtn').addEventListener('click', ()=>{
-  $('#startDate').value='';
-  $('#stream').value='Both';
-  $('#sitting').value='Jan';
-  $('#summary').hidden = true;
-  $('#exit').hidden = true;
-  setError('');
-  MODEL = {weeks:[], startDate:null, examKey:'Jan', stream:'Both'};
-});
-
-$('#startOver2').addEventListener('click', ()=>{
-  $('#resetBtn').click();
-  window.scrollTo({top:0,behavior:'smooth'});
-});
-
-/* Optional: after confirming plan, show exit page (you can add your own button to trigger) */
-// Example hook: when user presses Enter on table container with no focusable target,
-// we just show the exit card to demonstrate the end-of-flow page.
-document.addEventListener('keydown', (e)=>{
-  if(e.key==='Enter' && !e.target.closest('input,select,button,textarea,summary,details')){
-    if(!$('#summary').hidden){ $('#exit').hidden=false; window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'}); }
-  }
-});
-</script>
-</body>
-</html>
+  {key:'Property Practice', pct:5.3}, {key:'Land Law', pct:5.3},
+  {key:'Wills & Administration of Estates', pct:5.3}, {key:'Trusts',
